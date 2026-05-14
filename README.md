@@ -1,4 +1,4 @@
-# 🛰️ Project 1: Foundation Model Fine-Tuning for Crop Mapping
+# 🛰️ Foundation Model Fine-Tuning for Crop Mapping
 
 **Author:** Samuel Appiah Kubi  
 **Programme:** Copernicus Master's in Digital Earth (Erasmus Mundus)  
