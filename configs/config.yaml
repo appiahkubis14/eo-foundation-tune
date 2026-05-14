@@ -1,0 +1,117 @@
+# =============================================================================
+# Project 1: Foundation Model Fine-Tuning for Crop Mapping
+# Author: Samuel Appiah Kubi
+# Copernicus Master's in Digital Earth, Paris Lodron University Salzburg
+# =============================================================================
+
+# ── Study Area ────────────────────────────────────────────────────────────────
+study_area:
+  name: "Ejura, Ashanti Region, Ghana"
+  bbox: [7.15, -1.55, 7.60, -1.10]      # [min_lat, min_lon, max_lat, max_lon]
+  epsg: 32630                             # UTM Zone 30N (Ghana)
+  description: "Agricultural zone – maize and cocoa dominant"
+
+# ── Sentinel-2 Download ───────────────────────────────────────────────────────
+sentinel2:
+  start_date: "2023-03-01"
+  end_date:   "2023-10-31"               # One growing season
+  cloud_cover_max: 20                    # % – only download scenes below this
+  bands: ["B02", "B03", "B04", "B08", "B11"]   # Blue, Green, Red, NIR, SWIR
+  resolution: 10                         # metres
+  product_type: "S2_MSI_L2A"
+  provider: "cop_dataspace"              # Copernicus Data Space (eodag)
+  max_scenes: 10                         # Maximum scenes to download
+  scl_mask_classes: [0, 1, 3, 8, 9, 10] # Cloud / nodata SCL classes to mask
+
+# ── Derived Indices ───────────────────────────────────────────────────────────
+indices:
+  compute: ["NDVI", "NDWI", "EVI"]
+  # NDVI = (NIR - Red) / (NIR + Red)
+  # NDWI = (Green - NIR) / (Green + NIR)
+  # EVI  = 2.5 * (NIR - Red) / (NIR + 6*Red - 7.5*Blue + 1)
+
+# ── Patch / Tiling ────────────────────────────────────────────────────────────
+patches:
+  size: 32                               # pixels × pixels (32×32 recommended for Colab free tier)
+  stride: 16                             # stride for patch extraction (50% overlap)
+  bands: 8                               # 5 spectral + 3 indices = 8 channels
+  timesteps: 6                           # number of temporal acquisitions
+
+# ── Crop Classes ──────────────────────────────────────────────────────────────
+classes:
+  names: ["maize", "cocoa", "oil_palm", "fallow", "other"]
+  num_classes: 5
+  label_map:
+    maize:    0
+    cocoa:    1
+    oil_palm: 2
+    fallow:   3
+    other:    4
+  colors:                                # For visualisation
+    maize:    "#FFD700"
+    cocoa:    "#8B4513"
+    oil_palm: "#228B22"
+    fallow:   "#D2B48C"
+    other:    "#808080"
+
+# ── Foundation Model ──────────────────────────────────────────────────────────
+foundation_model:
+  name: "clay"                           # Options: clay, resnet50_imagenet
+  variant: "small"                       # clay-small (~10M params) – Colab compatible
+  # HuggingFace model ID (used if clay variant unavailable falls back to ResNet)
+  hf_model_id: "made-with-clay/Clay"
+  fallback: "resnet50"                   # Fallback if Clay fails to load
+  input_channels: 8                      # Must match patches.bands
+  freeze_ratio: 0.85                     # Freeze first 85% of layers
+  pretrained: true
+
+# ── Training ─────────────────────────────────────────────────────────────────
+training:
+  epochs: 50
+  batch_size: 16                         # Reduce to 8 if OOM on Colab
+  learning_rate_head: 1.0e-3             # For the new classification head
+  learning_rate_backbone: 1.0e-5         # For fine-tuning backbone (phase 2)
+  weight_decay: 1.0e-4
+  optimizer: "adamw"
+  scheduler: "reduce_on_plateau"
+  patience: 10                           # Early stopping patience
+  min_lr: 1.0e-6
+  augmentation:
+    random_flip: true
+    random_rotation: [0, 90, 180, 270]   # Degrees
+    brightness_jitter: 0.2
+    contrast_jitter: 0.15
+  class_weighting: true                  # Weighted loss for imbalanced classes
+  seed: 42
+
+# ── Spatial Cross-Validation ──────────────────────────────────────────────────
+cross_validation:
+  n_folds: 3
+  strategy: "spatial"                    # NOT random – avoids spatial leakage
+  test_fold: 2                           # Which fold to hold out as final test set
+
+# ── Evaluation ────────────────────────────────────────────────────────────────
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1", "iou"]
+  confusion_matrix: true
+  per_class: true
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+paths:
+  raw:        data/raw
+  processed:  data/processed
+  labels:     data/labels
+  models:     data/outputs/models
+  maps:       data/outputs/maps
+  reports:    data/outputs/reports
+
+# ── Baseline Models ───────────────────────────────────────────────────────────
+baselines:
+  random_forest:
+    n_estimators: 200
+    max_depth: 15
+    n_jobs: -1
+  unet_scratch:
+    epochs: 30
+    batch_size: 16
+    lr: 1.0e-3
